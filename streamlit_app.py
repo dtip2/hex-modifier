@@ -453,7 +453,7 @@ col1, col2, col3 = st.columns(3)
 
 with col1:
     st.header("File 1 (Original)")
-    uploaded_file1 = st.file_uploader("Upload Original File (e.g., stock ECU map)", type=['bin', 'dat', None], key="file1_uploader")
+    uploaded_file1 = st.file_uploader("Upload Original File (e.g., stock ECU map)", key="file1_uploader") # MODIFIED
     if uploaded_file1:
         st.session_state.file1_bytes = load_file_to_bytes_streamlit(uploaded_file1)
         st.session_state.file1_name = uploaded_file1.name
@@ -468,7 +468,7 @@ with col1:
 
 with col2:
     st.header("File 2 (Modified)")
-    uploaded_file2 = st.file_uploader("Upload Modified File (e.g., Stage 1 ECU map)", type=['bin', 'dat', None], key="file2_uploader")
+    uploaded_file2 = st.file_uploader("Upload Modified File (e.g., Stage 1 ECU map)", key="file2_uploader") # MODIFIED
     if uploaded_file2:
         st.session_state.file2_bytes = load_file_to_bytes_streamlit(uploaded_file2)
         st.session_state.file2_name = uploaded_file2.name
@@ -483,7 +483,7 @@ with col2:
 
 with col3:
     st.header("File 3 (Target to Patch)")
-    uploaded_file3 = st.file_uploader("Upload Target File (e.g., your current ECU map)", type=['bin', 'dat', None], key="file3_uploader")
+    uploaded_file3 = st.file_uploader("Upload Target File (e.g., your current ECU map)", key="file3_uploader") # MODIFIED
     if uploaded_file3:
         st.session_state.original_file3_bytes = load_file_to_bytes_streamlit(uploaded_file3)
         st.session_state.file3_name = uploaded_file3.name
