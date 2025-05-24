@@ -366,6 +366,12 @@ st.set_page_config(layout="wide")
 st.title("Binary File Patcher V4 (Streamlit Edition)")
 st.markdown("Compares File 1 & 2, applies differences to File 3, and generates a byte-level audit log.")
 
+# Initialize session state (once per session)
+# Store previous file IDs to detect new uploads
+if 'prev_file1_id' not in st.session_state: st.session_state.prev_file1_id = None
+if 'prev_file2_id' not in st.session_state: st.session_state.prev_file2_id = None
+if 'prev_file3_id' not in st.session_state: st.session_state.prev_file3_id = None
+
 default_file_name_map = {
     "file1_name": "File1_Original", "file2_name": "File2_Modified", "file3_name": "File3_Target"
 }
@@ -383,32 +389,44 @@ if 'live_log_messages' not in st.session_state: st.session_state.live_log_messag
 
 col1, col2, col3 = st.columns(3)
 file_upload_keys = {"file1": "uploader_f1", "file2": "uploader_f2", "file3": "uploader_f3"}
+
+def reset_dependent_states():
+    st.session_state.diff_blocks, st.session_state.diff_count = [], 0
+    st.session_state.patched_file_bytes, st.session_state.byte_level_skips_report = None, []
+    st.session_state.last_run_summary = {}
+    st.session_state.live_log_messages = []
+
+
 with col1:
     st.header("File 1 (Original)")
     uploaded_file1 = st.file_uploader("Upload Original File", key=file_upload_keys["file1"])
     if uploaded_file1:
+        new_upload = (st.session_state.prev_file1_id != uploaded_file1.file_id)
         st.session_state.file1_bytes = load_file_to_bytes_streamlit(uploaded_file1)
         st.session_state.file1_name = uploaded_file1.name
+        st.session_state.prev_file1_id = uploaded_file1.file_id
         if st.session_state.file1_bytes: st.success(f"Loaded: {st.session_state.file1_name} ({len(st.session_state.file1_bytes)} bytes)")
-        st.session_state.diff_blocks, st.session_state.diff_count = [], 0
-        st.session_state.patched_file_bytes, st.session_state.byte_level_skips_report = None, []
+        if new_upload: reset_dependent_states()
 with col2:
     st.header("File 2 (Modified)")
     uploaded_file2 = st.file_uploader("Upload Modified File", key=file_upload_keys["file2"])
     if uploaded_file2:
+        new_upload = (st.session_state.prev_file2_id != uploaded_file2.file_id)
         st.session_state.file2_bytes = load_file_to_bytes_streamlit(uploaded_file2)
         st.session_state.file2_name = uploaded_file2.name
+        st.session_state.prev_file2_id = uploaded_file2.file_id
         if st.session_state.file2_bytes: st.success(f"Loaded: {st.session_state.file2_name} ({len(st.session_state.file2_bytes)} bytes)")
-        st.session_state.diff_blocks, st.session_state.diff_count = [], 0
-        st.session_state.patched_file_bytes, st.session_state.byte_level_skips_report = None, []
+        if new_upload: reset_dependent_states()
 with col3:
     st.header("File 3 (Target to Patch)")
     uploaded_file3 = st.file_uploader("Upload Target File", key=file_upload_keys["file3"])
     if uploaded_file3:
+        new_upload = (st.session_state.prev_file3_id != uploaded_file3.file_id)
         st.session_state.original_file3_bytes = load_file_to_bytes_streamlit(uploaded_file3)
         st.session_state.file3_name = uploaded_file3.name
+        st.session_state.prev_file3_id = uploaded_file3.file_id
         if st.session_state.original_file3_bytes: st.success(f"Loaded: {st.session_state.file3_name} ({len(st.session_state.original_file3_bytes)} bytes)")
-        st.session_state.patched_file_bytes, st.session_state.byte_level_skips_report = None, []
+        if new_upload: reset_dependent_states() # Only reset results if File 3 itself is new
 
 if st.session_state.file1_bytes and st.session_state.file2_bytes and not st.session_state.diff_blocks:
     with st.spinner("Calculating differences..."):
@@ -432,7 +450,9 @@ st.text_area("Live Log:", "\n".join(st.session_state.live_log_messages), height=
 if st.button("Apply Differences to File 3", key="apply_button_main", type="primary"):
     patch_status_placeholder.info("Initiating patching...")
     patch_progress_placeholder.progress(0)
-    st.session_state.patched_file_bytes, st.session_state.byte_level_skips_report = None, []
+    # Reset results specifically for this run
+    st.session_state.patched_file_bytes = None
+    st.session_state.byte_level_skips_report = []
     st.session_state.last_run_summary = {}
     st.session_state.live_log_messages = ["Log started for current run..."]
 
@@ -487,10 +507,10 @@ if st.button("Apply Differences to File 3", key="apply_button_main", type="prima
             st.balloons()
         else: patch_status_placeholder.error("Patching process failed or resulted in no data.")
     
-    # Removed st.experimental_rerun()
+    # After button logic, Streamlit will naturally rerun and update displays based on session_state
 
 st.divider()
-if st.session_state.patched_file_bytes:
+if st.session_state.patched_file_bytes is not None: # This condition now correctly persists
     st.header("Patching Results")
     summary = st.session_state.last_run_summary
     if summary:
