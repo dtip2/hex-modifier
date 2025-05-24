@@ -42,6 +42,7 @@ def find_differences_with_context(file1_bytes, file2_bytes, context_len=CONTEXT_
         if is_diff or is_f1_remaining or is_f2_remaining:
             diff_start_idx1, diff_start_idx2 = idx1, idx2
             original_offset_f1 = diff_start_idx1
+            original_offset_f2 = diff_start_idx2 # <<< --- ADD THIS LINE BACK
             actual_context_start1 = max(0, diff_start_idx1 - context_len)
             context_before = file1_bytes[actual_context_start1:diff_start_idx1]
             diff_end_idx1, diff_end_idx2 = idx1, idx2
@@ -64,7 +65,7 @@ def find_differences_with_context(file1_bytes, file2_bytes, context_len=CONTEXT_
                             "new_data_bytes": new_data,
                             "context_before": context_before,
                             "context_after": context_after,
-                            "original_f2_offset_for_new_data": original_offset_f2,
+                            "original_f2_offset_for_new_data": original_offset_f2, # Now it will be defined
                             "original_new_data_len": len(new_data)
                            })
         else: break
