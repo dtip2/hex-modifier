@@ -68,7 +68,7 @@ class StreamlitGuiUpdate:
         self.status_text_placeholder = status_text_placeholder
 
     def put(self, item_tuple):
-        if item_tuple is None: # Handle orchestrator's end signal
+        if item_tuple is None:
             if self.status_text_placeholder:
                 self.status_text_placeholder.success("Orchestrator processing finished signal received.")
             if 'live_log_messages' not in st.session_state:
@@ -272,7 +272,7 @@ def apply_patches_with_multiple_passes(original_file3_bytes, all_diff_blocks_ini
     if not all_diff_blocks_initial:
         post_orchestrator_status("No differences to apply.")
         post_orchestrator_update('progress', 100)
-        gui_queue.put(None) # Signal end
+        gui_queue.put(None)
         return original_file3_bytes, []
 
     all_diff_blocks_augmented = []
@@ -334,7 +334,7 @@ def apply_patches_with_multiple_passes(original_file3_bytes, all_diff_blocks_ini
     else: post_orchestrator_status("No P1-skipped patches for Pass 3 attempt.")
     post_orchestrator_update('progress', P3_APPLY_END)
     post_orchestrator_status(f"All patching passes complete. Final audit for skip log will occur next.")
-    gui_queue.put(None) # Signal end of orchestration
+    gui_queue.put(None)
     return current_target_bytes, all_diff_blocks_augmented
 
 # --- Byte-Level Skip Report Generator ---
@@ -427,16 +427,14 @@ st.header("Patching Controls")
 strictness_level = st.slider("Pass 1 Strictness", 1, 6, 4, key="strictness_slider_main")
 patch_status_placeholder = st.empty()
 patch_progress_placeholder = st.empty()
-# This text_area will display the st.session_state.live_log_messages
 st.text_area("Live Log:", "\n".join(st.session_state.live_log_messages), height=200, key="live_log_display_main", disabled=True)
-
 
 if st.button("Apply Differences to File 3", key="apply_button_main", type="primary"):
     patch_status_placeholder.info("Initiating patching...")
     patch_progress_placeholder.progress(0)
     st.session_state.patched_file_bytes, st.session_state.byte_level_skips_report = None, []
     st.session_state.last_run_summary = {}
-    st.session_state.live_log_messages = ["Log started for current run..."] # Reset log messages for new run
+    st.session_state.live_log_messages = ["Log started for current run..."]
 
     if not (st.session_state.file1_bytes and st.session_state.file2_bytes and st.session_state.original_file3_bytes):
         patch_status_placeholder.error("Error: Please load all three files.")
@@ -489,9 +487,7 @@ if st.button("Apply Differences to File 3", key="apply_button_main", type="prima
             st.balloons()
         else: patch_status_placeholder.error("Patching process failed or resulted in no data.")
     
-    # Force a rerun to update the log display with messages accumulated during patching
-    st.experimental_rerun()
-
+    # Removed st.experimental_rerun()
 
 st.divider()
 if st.session_state.patched_file_bytes:
@@ -535,27 +531,16 @@ if st.session_state.patched_file_bytes:
             st.download_button("Download Skip Log", skip_log_text, "byte_skip_log.txt", "text/plain", key="dl_skiplog_main")
         if st.session_state.byte_level_skips_report:
             st.subheader("Skip Log Preview (Max 20 Mismatches)")
-            # Heuristic for preview: find header, then take a chunk of lines
             header_end_idx = 0
             for i, line_content in enumerate(log_lines):
-                if line_content.strip() == ("-" * 40):
-                    header_end_idx = i + 2 # Include the blank line after ---
-                    break
-            
+                if line_content.strip() == ("-" * 40): header_end_idx = i + 2; break
             preview_entry_lines = []
-            entry_count = 0
-            max_preview_entries = 20
-            lines_per_entry_approx = 5 # Patch Ref, Offset, Expected, Actual, Reason, Separator
-            
+            entry_count, max_preview_entries = 0, 20
             for i in range(header_end_idx, len(log_lines)):
                 preview_entry_lines.append(log_lines[i])
-                if log_lines[i].strip() == ("-"*20):
-                    entry_count +=1
-                if entry_count >= max_preview_entries:
-                    break
-            
+                if log_lines[i].strip() == ("-"*20): entry_count +=1
+                if entry_count >= max_preview_entries: break
             st.text_area("Skip Log Preview", "".join(preview_entry_lines), height=300, key="skiplog_preview_main", disabled=True)
-
             if len(sorted_skips) > max_preview_entries: st.caption(f"... and {len(sorted_skips) - max_preview_entries} more (see full log).")
         elif summary and summary.get('final_skipped_count_audit', 0) == 0 and summary.get('total_original_diff_bytes_f2',0) > 0:
             st.success("Audit Log: All target bytes appear correct.")
