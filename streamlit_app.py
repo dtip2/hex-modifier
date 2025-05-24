@@ -66,19 +66,25 @@ class StreamlitGuiUpdate:
     def __init__(self, progress_bar_placeholder, status_text_placeholder):
         self.progress_bar_placeholder = progress_bar_placeholder
         self.status_text_placeholder = status_text_placeholder
-        # Removed log_area_placeholder from here
 
     def put(self, item_tuple):
+        if item_tuple is None: # Handle orchestrator's end signal
+            if self.status_text_placeholder:
+                self.status_text_placeholder.success("Orchestrator processing finished signal received.")
+            if 'live_log_messages' not in st.session_state:
+                st.session_state.live_log_messages = []
+            st.session_state.live_log_messages.append("Orchestrator signals end of passes.")
+            st.session_state.live_log_messages = st.session_state.live_log_messages[-15:]
+            return
+
         message_type, value = item_tuple
+        
         if message_type == 'status':
             if self.status_text_placeholder:
                 self.status_text_placeholder.info(f"{value}")
-            
-            # Append to a session_state list for the log
             if 'live_log_messages' not in st.session_state:
                 st.session_state.live_log_messages = []
             st.session_state.live_log_messages.append(str(value))
-            # Keep only the last 15 messages
             st.session_state.live_log_messages = st.session_state.live_log_messages[-15:]
 
         elif message_type == 'progress':
@@ -86,10 +92,6 @@ class StreamlitGuiUpdate:
                 progress_value = int(value)
                 if 0 <= progress_value <= 100: self.progress_bar_placeholder.progress(progress_value)
                 elif progress_value > 100: self.progress_bar_placeholder.progress(100)
-
-        elif value is None: 
-             if self.status_text_placeholder:
-                self.status_text_placeholder.success("Orchestrator processing complete. Finalizing...")
 
 # --- Patch Application Engine (Pass 1) ---
 def apply_patches_pure_python_search(
@@ -158,7 +160,7 @@ def apply_patches_pure_python_search(
     scan_progress_range = progress_scan_end_percent - current_progress_after_build; scan_count = 0
     for i_scan in range(target_len):
         scan_count += 1
-        if scan_count > 0 and scan_count % 250000 == 0: # Ensure scan_count is positive for modulo
+        if scan_count > 0 and scan_count % 250000 == 0:
             sp_done = (i_scan / target_len) if target_len > 0 else 1; cs_prog = current_progress_after_build + (scan_progress_range * sp_done)
             post_update('progress', int(cs_prog)); post_status_update(f"Scanning target at offset {i_scan}/{target_len}...")
         for pattern_bytes in patterns_list:
@@ -270,7 +272,7 @@ def apply_patches_with_multiple_passes(original_file3_bytes, all_diff_blocks_ini
     if not all_diff_blocks_initial:
         post_orchestrator_status("No differences to apply.")
         post_orchestrator_update('progress', 100)
-        gui_queue.put(None)
+        gui_queue.put(None) # Signal end
         return original_file3_bytes, []
 
     all_diff_blocks_augmented = []
@@ -332,7 +334,7 @@ def apply_patches_with_multiple_passes(original_file3_bytes, all_diff_blocks_ini
     else: post_orchestrator_status("No P1-skipped patches for Pass 3 attempt.")
     post_orchestrator_update('progress', P3_APPLY_END)
     post_orchestrator_status(f"All patching passes complete. Final audit for skip log will occur next.")
-    gui_queue.put(None)
+    gui_queue.put(None) # Signal end of orchestration
     return current_target_bytes, all_diff_blocks_augmented
 
 # --- Byte-Level Skip Report Generator ---
@@ -364,13 +366,11 @@ st.set_page_config(layout="wide")
 st.title("Binary File Patcher V4 (Streamlit Edition)")
 st.markdown("Compares File 1 & 2, applies differences to File 3, and generates a byte-level audit log.")
 
-# Initialize session state (once per session)
 default_file_name_map = {
     "file1_name": "File1_Original", "file2_name": "File2_Modified", "file3_name": "File3_Target"
 }
 for key, default_value in default_file_name_map.items():
     if key not in st.session_state: st.session_state[key] = default_value
-
 if 'file1_bytes' not in st.session_state: st.session_state.file1_bytes = None
 if 'file2_bytes' not in st.session_state: st.session_state.file2_bytes = None
 if 'original_file3_bytes' not in st.session_state: st.session_state.original_file3_bytes = None
@@ -379,12 +379,10 @@ if 'diff_count' not in st.session_state: st.session_state.diff_count = 0
 if 'patched_file_bytes' not in st.session_state: st.session_state.patched_file_bytes = None
 if 'byte_level_skips_report' not in st.session_state: st.session_state.byte_level_skips_report = []
 if 'last_run_summary' not in st.session_state: st.session_state.last_run_summary = {}
-if 'live_log_messages' not in st.session_state: st.session_state.live_log_messages = [] # For the live log
+if 'live_log_messages' not in st.session_state: st.session_state.live_log_messages = []
 
-# File Upload Columns
 col1, col2, col3 = st.columns(3)
 file_upload_keys = {"file1": "uploader_f1", "file2": "uploader_f2", "file3": "uploader_f3"}
-
 with col1:
     st.header("File 1 (Original)")
     uploaded_file1 = st.file_uploader("Upload Original File", key=file_upload_keys["file1"])
@@ -412,7 +410,6 @@ with col3:
         if st.session_state.original_file3_bytes: st.success(f"Loaded: {st.session_state.file3_name} ({len(st.session_state.original_file3_bytes)} bytes)")
         st.session_state.patched_file_bytes, st.session_state.byte_level_skips_report = None, []
 
-# Calculate and display differences
 if st.session_state.file1_bytes and st.session_state.file2_bytes and not st.session_state.diff_blocks:
     with st.spinner("Calculating differences..."):
         start_time = time.time()
@@ -423,26 +420,23 @@ if st.session_state.file1_bytes and st.session_state.file2_bytes:
     st.subheader("Difference Summary (File 1 vs File 2)")
     st.write(f"Total Byte Differences: {st.session_state.diff_count}")
     st.write(f"Difference Blocks Found: {len(st.session_state.diff_blocks)}")
-    if not st.session_state.diff_blocks and st.session_state.diff_count == 0:
-        st.success("Files 1 and 2 are identical.")
+    if not st.session_state.diff_blocks and st.session_state.diff_count == 0: st.success("Files 1 and 2 are identical.")
 st.divider()
 
-# Patching Controls and Execution
 st.header("Patching Controls")
 strictness_level = st.slider("Pass 1 Strictness", 1, 6, 4, key="strictness_slider_main")
 patch_status_placeholder = st.empty()
 patch_progress_placeholder = st.empty()
-live_log_display_area = st.empty() # Placeholder for the text_area that shows live_log_messages
+# This text_area will display the st.session_state.live_log_messages
+st.text_area("Live Log:", "\n".join(st.session_state.live_log_messages), height=200, key="live_log_display_main", disabled=True)
+
 
 if st.button("Apply Differences to File 3", key="apply_button_main", type="primary"):
     patch_status_placeholder.info("Initiating patching...")
     patch_progress_placeholder.progress(0)
     st.session_state.patched_file_bytes, st.session_state.byte_level_skips_report = None, []
     st.session_state.last_run_summary = {}
-    st.session_state.live_log_messages = ["Log started..."] # Reset log messages
-
-    # Display initial empty log area
-    live_log_display_area.text_area("Live Log:", "\n".join(st.session_state.live_log_messages), height=200, key="live_log_on_button_click")
+    st.session_state.live_log_messages = ["Log started for current run..."] # Reset log messages for new run
 
     if not (st.session_state.file1_bytes and st.session_state.file2_bytes and st.session_state.original_file3_bytes):
         patch_status_placeholder.error("Error: Please load all three files.")
@@ -458,19 +452,13 @@ if st.button("Apply Differences to File 3", key="apply_button_main", type="prima
         patch_progress_placeholder.progress(100)
     else:
         start_patch_time = time.time()
-        streamlit_updater = StreamlitGuiUpdate(patch_progress_placeholder, patch_status_placeholder) # Pass only needed placeholders
+        streamlit_updater = StreamlitGuiUpdate(patch_progress_placeholder, patch_status_placeholder)
 
-        with st.spinner(f"Applying {len(st.session_state.diff_blocks)} diff blocks..."):
-            # The loop below will allow the live log to update
-            # This is a workaround for long-running tasks without true async in simple Streamlit
+        with st.spinner(f"Applying {len(st.session_state.diff_blocks)} diff blocks... This may take some time."):
             final_bytes_result, all_original_diffs_for_audit = apply_patches_with_multiple_passes(
                 st.session_state.original_file3_bytes, st.session_state.diff_blocks,
                 strictness_level, streamlit_updater)
             
-            # After patching, update the log display one last time explicitly
-            live_log_display_area.text_area("Live Log:", "\n".join(st.session_state.live_log_messages), height=200, key="live_log_after_patch")
-
-
             st.session_state.patched_file_bytes = final_bytes_result
             if final_bytes_result and st.session_state.file2_bytes and all_original_diffs_for_audit:
                 patch_status_placeholder.info("Generating byte-level skip report (audit)...")
@@ -500,17 +488,12 @@ if st.button("Apply Differences to File 3", key="apply_button_main", type="prima
             else: patch_status_placeholder.success(f"Patching complete (no differences). File 3 unchanged. Time: {total_patch_time:.2f}s.")
             st.balloons()
         else: patch_status_placeholder.error("Patching process failed or resulted in no data.")
-
-# Display live log content from session state (this will update as messages are added)
-if st.session_state.live_log_messages:
-    # This text_area is now primarily driven by the button click logic and session_state updates
-    # The key here ensures this specific instance of text_area is maintained across reruns.
-    # If the button isn't clicked, it might show the log from the previous run until cleared.
-    live_log_display_area.text_area("Live Log:", "\n".join(st.session_state.live_log_messages), height=200, key="live_log_main_display")
+    
+    # Force a rerun to update the log display with messages accumulated during patching
+    st.experimental_rerun()
 
 
 st.divider()
-# Results and Download Section
 if st.session_state.patched_file_bytes:
     st.header("Patching Results")
     summary = st.session_state.last_run_summary
@@ -552,13 +535,31 @@ if st.session_state.patched_file_bytes:
             st.download_button("Download Skip Log", skip_log_text, "byte_skip_log.txt", "text/plain", key="dl_skiplog_main")
         if st.session_state.byte_level_skips_report:
             st.subheader("Skip Log Preview (Max 20 Mismatches)")
-            preview_text = "".join(log_lines[:1] + log_lines[4:4 + (20 * 5)]) # Heuristic to get ~20 entries
-            st.text_area("Skip Log Preview", preview_text, height=300, key="skiplog_preview_main")
-            if len(sorted_skips) > 20: st.caption(f"... and {len(sorted_skips) - 20} more (see full log).")
+            # Heuristic for preview: find header, then take a chunk of lines
+            header_end_idx = 0
+            for i, line_content in enumerate(log_lines):
+                if line_content.strip() == ("-" * 40):
+                    header_end_idx = i + 2 # Include the blank line after ---
+                    break
+            
+            preview_entry_lines = []
+            entry_count = 0
+            max_preview_entries = 20
+            lines_per_entry_approx = 5 # Patch Ref, Offset, Expected, Actual, Reason, Separator
+            
+            for i in range(header_end_idx, len(log_lines)):
+                preview_entry_lines.append(log_lines[i])
+                if log_lines[i].strip() == ("-"*20):
+                    entry_count +=1
+                if entry_count >= max_preview_entries:
+                    break
+            
+            st.text_area("Skip Log Preview", "".join(preview_entry_lines), height=300, key="skiplog_preview_main", disabled=True)
+
+            if len(sorted_skips) > max_preview_entries: st.caption(f"... and {len(sorted_skips) - max_preview_entries} more (see full log).")
         elif summary and summary.get('final_skipped_count_audit', 0) == 0 and summary.get('total_original_diff_bytes_f2',0) > 0:
             st.success("Audit Log: All target bytes appear correct.")
 
-# Sidebar
 st.sidebar.header("About")
 st.sidebar.info("Binary File Patcher V4 (Streamlit). Applies differences from File1-File2 to File3.")
 st.sidebar.markdown("--- \n ### How to Use:\n1. Upload File 1 (Original Ref).\n2. Upload File 2 (Modified Ref).\n3. Upload File 3 (Target to Patch).\n4. Adjust Strictness.\n5. Click 'Apply Differences'.\n6. Review & Download results.")
